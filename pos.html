@@ -3,12 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Star Stationery POS - Discount Edition</title>
+    <title>Star Stationery POS - Offline Sync Edition</title>
     <style>
         :root {
             --primary-blue: #0984e3;
             --success-green: #00b894;
             --warning-red: #d63031;
+            --orange-offline: #e67e22;
             --light-bg: #f5f6fa;
             --white: #ffffff;
             --dark-text: #2d3436;
@@ -24,7 +25,7 @@
         .search-input { flex: 1; padding: 12px; border-radius: 10px; border: 1px solid #ddd; outline: none; font-size: 15px; }
         .cat-select { padding: 10px; border-radius: 10px; border: 1px solid #ddd; background: white; cursor: pointer; min-width: 150px; }
 
-        .status-badge { font-size: 13px; padding: 5px 12px; border-radius: 20px; background: #dfe6e9; font-weight: bold; }
+        .status-badge { font-size: 13px; padding: 5px 12px; border-radius: 20px; background: #dfe6e9; font-weight: bold; transition: 0.3s; }
         .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 20px; }
         .product-card { 
             background: var(--white); border-radius: 15px; padding: 12px; text-align: center; cursor: pointer; 
@@ -47,7 +48,6 @@
         .btn-plus { background: var(--primary-blue); color: white; }
         .btn-remove { background: #fab1a0; color: #d63031; margin-left: 10px; }
 
-        /* Discount & Total Styles */
         .total-box { border-top: 2px dashed #ddd; padding-top: 15px; }
         .discount-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 0.9rem; color: #636e72; }
         .discount-input { width: 80px; padding: 5px; border: 1px solid #ddd; border-radius: 5px; text-align: right; font-weight: bold; color: var(--warning-red); }
@@ -68,7 +68,7 @@
     <div class="main-container">
         <div class="header-bar">
             <h2 style="margin:0; color: var(--primary-blue);">✨ Star Stationery</h2>
-            <div id="syncStatus" class="status-badge">☁️ Connecting...</div>
+            <div id="syncStatus" class="status-badge">☁️ Initializing...</div>
         </div>
 
         <div class="filter-section">
@@ -124,7 +124,7 @@
             <span>Subtotal:</span>
             <span id="v-subtotal"></span>
         </div>
-        <div id="v-discount-area" style="display:flex; justify-content:space-between;">
+        <div style="display:flex; justify-content:space-between;">
             <span>Discount:</span>
             <span id="v-discount"></span>
         </div>
@@ -144,20 +144,68 @@
         let inventory = [];
         let cart = [];
 
-        async function fetchInventory() {
-            const status = document.getElementById('syncStatus');
-            try {
-                const response = await fetch(SCRIPT_URL);
-                inventory = await response.json();
+        // --- OFFLINE CORE LOGIC ---
+        
+        // စက်ထဲမှာ သိမ်းထားတဲ့ ဒေတာတွေကို အရင်ယူသုံးမယ်
+        function loadLocalData() {
+            const savedInventory = localStorage.getItem('star_inventory');
+            if (savedInventory) {
+                inventory = JSON.parse(savedInventory);
                 setupCategoryFilter();
                 renderProducts(inventory);
-                status.innerText = "✅ Cloud Synced";
-                status.style.color = "var(--success-green)";
-            } catch (error) {
-                status.innerText = "❌ Connection Error";
-                status.style.color = "var(--warning-red)";
+                updateStatus("📶 Offline Mode (Local Data)", "var(--orange-offline)");
             }
         }
+
+        async function fetchInventory() {
+            try {
+                const response = await fetch(SCRIPT_URL);
+                const freshData = await response.json();
+                inventory = freshData;
+                // Cloud ကရတဲ့ ဒေတာကို စက်ထဲမှာ Update လုပ်ထားမယ်
+                localStorage.setItem('star_inventory', JSON.stringify(freshData));
+                setupCategoryFilter();
+                renderProducts(inventory);
+                updateStatus("✅ Cloud Synced", "var(--success-green)");
+                // အင်တာနက်ပြန်ရရင် ကျန်နေတဲ့ Offline အရောင်းတွေကို ပို့မယ်
+                syncOfflineSales();
+            } catch (error) {
+                console.log("Offline mode active.");
+                loadLocalData();
+            }
+        }
+
+        function updateStatus(text, color) {
+            const status = document.getElementById('syncStatus');
+            status.innerText = text;
+            status.style.color = color;
+        }
+
+        // Offline ရောင်းထားတာတွေကို Google Sheet ဆီ ပို့ပေးမည့် Function
+        async function syncOfflineSales() {
+            const pendingSales = JSON.parse(localStorage.getItem('pending_sales') || "[]");
+            if (pendingSales.length === 0) return;
+
+            console.log(`Syncing ${pendingSales.length} offline sales...`);
+            
+            for (let sale of pendingSales) {
+                try {
+                    await fetch(SCRIPT_URL, {
+                        method: "POST",
+                        mode: "no-cors",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(sale)
+                    });
+                } catch (e) {
+                    console.error("Sync failed for a sale record.");
+                }
+            }
+            // အားလုံးပို့ပြီးရင် ရှင်းထုတ်လိုက်မယ်
+            localStorage.removeItem('pending_sales');
+            console.log("All offline sales synced successfully.");
+        }
+
+        // --- PRODUCT & UI LOGIC ---
 
         function setupCategoryFilter() {
             const catSelect = document.getElementById('catFilter');
@@ -174,7 +222,6 @@
         function filterProducts() {
             const searchTerm = document.getElementById('searchInput').value.toLowerCase();
             const selectedCat = document.getElementById('catFilter').value;
-
             const filtered = inventory.filter(p => {
                 const matchesSearch = p.name.toLowerCase().includes(searchTerm);
                 const matchesCat = (selectedCat === 'all') || (p.category === selectedCat);
@@ -239,7 +286,6 @@
 
             if(cart.length === 0) {
                 list.innerHTML = `<div style="text-align: center; color: #ccc; margin-top: 100px;"><div style="font-size: 50px;">🛍️</div><p>Empty Cart</p></div>`;
-                document.getElementById('discountInput').value = 0;
             } else {
                 list.innerHTML = cart.map(i => {
                     subtotal += i.price * i.qty;
@@ -260,7 +306,6 @@
                         </div>`;
                 }).join('');
             }
-
             const grandTotal = Math.max(0, subtotal - discountAmount);
             document.getElementById('subTotal').innerText = subtotal.toLocaleString() + " KS";
             document.getElementById('totalPrice').innerText = grandTotal.toLocaleString() + " KS";
@@ -271,7 +316,7 @@
             const btn = document.getElementById('payBtn');
             const discountAmt = parseInt(document.getElementById('discountInput').value) || 0;
             
-            btn.innerText = "Syncing & Printing...";
+            btn.innerText = "Processing...";
             btn.disabled = true;
 
             let subtotal = 0, saleProfit = 0, vHtml = "";
@@ -286,9 +331,10 @@
             }).join(", ");
 
             const finalTotal = subtotal - discountAmt;
-            const finalProfit = saleProfit - discountAmt; // အမြတ်ထဲမှ discount ကို နုတ်သည်
+            const finalProfit = saleProfit - discountAmt;
+            const saleData = { type: "SALE", items: itemsReport, total: finalTotal, profit: finalProfit, date: new Date().toISOString() };
 
-            // Voucher UI Setup
+            // Voucher Print Setup
             document.getElementById('v-list').innerHTML = vHtml;
             document.getElementById('v-subtotal').innerText = subtotal.toLocaleString() + " KS";
             document.getElementById('v-discount').innerText = "- " + discountAmt.toLocaleString() + " KS";
@@ -298,21 +344,28 @@
             window.print();
 
             try {
-                await fetch(SCRIPT_URL, {
+                // အင်တာနက်ရှိမရှိ စစ်ပြီး ပို့မည်
+                const response = await fetch(SCRIPT_URL, {
                     method: "POST",
                     mode: "no-cors",
                     headers: { "Content-Type": "application/json" },
-                    // Profit ထဲမှပါ discount ကို နုတ်ပြီး Sheet ထဲသို့ ပို့ပေးသည်
-                    body: JSON.stringify({ type: "SALE", items: itemsReport, total: finalTotal, profit: finalProfit })
+                    body: JSON.stringify(saleData)
                 });
-                alert("အရောင်းအောင်မြင်ပါသည်။");
+                alert("အရောင်းအောင်မြင်ပါသည်။ (Online Synced)");
                 location.reload(); 
             } catch (e) {
-                alert("Cloud Sync Error!");
-                btn.disabled = false;
+                // အင်တာနက်မရှိလျှင် Local ထဲမှာ မှတ်ထားမည်
+                const pendingSales = JSON.parse(localStorage.getItem('pending_sales') || "[]");
+                pendingSales.push(saleData);
+                localStorage.setItem('pending_sales', JSON.stringify(pendingSales));
+                
+                alert("အင်တာနက်မရှိသဖြင့် စက်ထဲတွင်သာ မှတ်သားထားပါသည်။ အင်တာနက်ပြန်လာလျှင် အလိုအလျောက် ပို့ပေးပါမည်။");
+                location.reload();
             }
         }
 
+        // စဖွင့်ဖွင့်ချင်း Local Data အရင်ပြပြီးမှ Cloud ကို လှမ်းခေါ်မည်
+        loadLocalData();
         fetchInventory();
     </script>
 </body>
