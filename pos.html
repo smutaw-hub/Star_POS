@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Star Stationery POS - Category Edition</title>
+    <style>
+        :root {
+            --primary-blue: #0984e3;
+            --success-green: #00b894;
+            --warning-red: #d63031;
+            --light-bg: #f5f6fa;
+            --white: #ffffff;
+            --dark-text: #2d3436;
+        }
+
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; background: var(--light-bg); display: flex; height: 100vh; color: var(--dark-text); overflow: hidden; }
+
+        /* Left Side: Product Grid */
+        .main-container { flex: 2; padding: 25px; overflow-y: auto; display: flex; flex-direction: column; }
+        .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        
+        /* Search & Filter Styles */
+        .filter-section { display: flex; gap: 10px; margin-bottom: 20px; }
+        .search-input { flex: 1; padding: 12px; border-radius: 10px; border: 1px solid #ddd; outline: none; font-size: 15px; }
+        .cat-select { padding: 10px; border-radius: 10px; border: 1px solid #ddd; background: white; cursor: pointer; min-width: 150px; }
+
+        .status-badge { font-size: 13px; padding: 5px 12px; border-radius: 20px; background: #dfe6e9; font-weight: bold; }
+        .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 20px; }
+        .product-card { 
+            background: var(--white); border-radius: 15px; padding: 12px; text-align: center; cursor: pointer; 
+            position: relative; transition: 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 2px solid transparent;
+            display: flex; flex-direction: column; height: 260px;
+        }
+        .product-card:hover { transform: translateY(-3px); border-color: var(--primary-blue); }
+        .product-image { width: 100%; height: 130px; object-fit: contain; border-radius: 10px; margin-bottom: 10px; background: #f9f9f9; }
+        .stock-tag { position: absolute; top: 10px; right: 10px; font-size: 11px; font-weight: bold; padding: 3px 8px; border-radius: 5px; background: rgba(255,255,255,0.9); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .low-stock { color: var(--warning-red); border: 1px solid var(--warning-red); }
+
+        /* Right Side: Smart Cart */
+        .receipt-section { flex: 0.9; background: var(--white); padding: 25px; border-left: 1px solid #ddd; display: flex; flex-direction: column; box-shadow: -5px 0 15px rgba(0,0,0,0.02); }
+        .cart-list { flex: 1; overflow-y: auto; margin: 20px 0; border-top: 1px solid #eee; }
+        .cart-item { display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #f1f2f6; }
+        .qty-controls { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+        
+        .btn-sm { border: none; width: 30px; height: 30px; border-radius: 6px; cursor: pointer; font-weight: bold; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+        .btn-minus { background: #dfe6e9; color: #2d3436; }
+        .btn-plus { background: var(--primary-blue); color: white; }
+        .btn-remove { background: #fab1a0; color: #d63031; margin-left: 10px; }
+
+        .total-box { border-top: 2px dashed #ddd; padding-top: 20px; }
+        .total-row { display: flex; justify-content: space-between; font-size: 1.6rem; font-weight: bold; margin-bottom: 20px; }
+        .pay-btn { background: var(--success-green); color: white; border: none; padding: 20px; border-radius: 12px; font-size: 18px; font-weight: bold; cursor: pointer; width: 100%; }
+
+        #voucher-print-area { display: none; }
+        @media print {
+            body * { visibility: hidden; }
+            #voucher-print-area, #voucher-print-area * { visibility: visible; }
+            #voucher-print-area { display: block; position: absolute; left: 0; top: 0; width: 80mm; padding: 10px; font-family: 'Courier New', monospace; font-size: 12px; }
+            .v-hr { border-top: 1px dashed black; margin: 10px 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="main-container">
+        <div class="header-bar">
+            <h2 style="margin:0; color: var(--primary-blue);">✨ Star Stationery</h2>
+            <div id="syncStatus" class="status-badge">☁️ Connecting...</div>
+        </div>
+
+        <div class="filter-section">
+            <input type="text" id="searchInput" class="search-input" placeholder="ပစ္စည်းအမည်ဖြင့် ရှာဖွေပါ..." oninput="filterProducts()">
+            <select id="catFilter" class="cat-select" onchange="filterProducts()">
+                <option value="all">All Categories</option>
+            </select>
+        </div>
+
+        <div class="product-grid" id="productGrid">
+            <p style="grid-column: 1/-1; text-align: center; color: #999;">Loading products...</p>
+        </div>
+    </div>
+
+    <div class="receipt-section">
+        <h3 style="margin:0;">🛒 Order Summary</h3>
+        <div class="cart-list" id="cartItems">
+            <div style="text-align: center; color: #ccc; margin-top: 100px;">
+                <div style="font-size: 50px;">🛍️</div>
+                <p>Empty Cart</p>
+            </div>
+        </div>
+
+        <div class="total-box">
+            <div class="total-row">
+                <span>Total:</span>
+                <span id="totalPrice">0 KS</span>
+            </div>
+            <button class="pay-btn" id="payBtn" onclick="processSale()">Print & Complete Sale</button>
+        </div>
+    </div>
+
+    <div id="voucher-print-area">
+        <div style="text-align: center;">
+            <h2 style="margin:0;">STAR STATIONERY</h2>
+            <p style="margin:5px 0;">Yangon, Myanmar</p>
+            <p id="v-time" style="font-size: 11px;"></p>
+        </div>
+        <div class="v-hr"></div>
+        <div id="v-list"></div>
+        <div class="v-hr"></div>
+        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:16px;">
+            <span>TOTAL:</span>
+            <span id="v-total"></span>
+        </div>
+        <div class="v-hr"></div>
+        <p style="text-align: center; margin-top:10px;">*** Thank You! ***</p>
+    </div>
+
+    <script>
+        // *** REPLACE WITH YOUR WEB APP URL ***
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxN3rWnO2bvT4T2qtUUHDb2X4ukJOPXc7d0cXiXV1KBaWEjDK-svQEhVAIfzy1HMjni/exec";
+
+        let inventory = [];
+        let cart = [];
+
+        async function fetchInventory() {
+            const status = document.getElementById('syncStatus');
+            try {
+                const response = await fetch(SCRIPT_URL);
+                inventory = await response.json();
+                setupCategoryFilter();
+                renderProducts(inventory);
+                status.innerText = "✅ Cloud Synced";
+                status.style.color = "var(--success-green)";
+            } catch (error) {
+                status.innerText = "❌ Connection Error";
+                status.style.color = "var(--warning-red)";
+            }
+        }
+
+        function setupCategoryFilter() {
+            const catSelect = document.getElementById('catFilter');
+            // 'category' ဟု ပြောင်းလဲအသုံးပြုထားသည်
+            const categories = [...new Set(inventory.map(p => p.category).filter(c => c))];
+            
+            // ယခင် option များကို ရှင်းထုတ်ပြီး အသစ်ပြန်ထည့်သည်
+            catSelect.innerHTML = '<option value="all">All Categories</option>';
+            categories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat;
+                option.innerText = cat;
+                catSelect.appendChild(option);
+            });
+        }
+
+        function filterProducts() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const selectedCat = document.getElementById('catFilter').value;
+
+            const filtered = inventory.filter(p => {
+                const matchesSearch = p.name.toLowerCase().includes(searchTerm);
+                // 'category' ဟု ပြောင်းလဲစစ်ဆေးသည်
+                const matchesCat = (selectedCat === 'all') || (p.category === selectedCat);
+                return matchesSearch && matchesCat;
+            });
+            renderProducts(filtered);
+        }
+
+        function renderProducts(data) {
+            const grid = document.getElementById('productGrid');
+            if (data.length === 0) {
+                grid.innerHTML = `<p style="grid-column: 1/-1; text-align: center; color: #999;">ရှာဖွေမှုမတွေ့ရှိပါ</p>`;
+                return;
+            }
+            grid.innerHTML = data.map(p => {
+                const imgTag = p.image 
+                    ? `<img src="${p.image}" class="product-image" loading="lazy">`
+                    : `<div class="product-image" style="display:flex; align-items:center; justify-content:center; background:#eee; font-size:50px;">📦</div>`;
+                
+                return `
+                    <div class="product-card" onclick="addToCart(${p.id})">
+                        <span class="stock-tag ${p.stock < 5 ? 'low-stock' : ''}">Stock: ${p.stock}</span>
+                        ${imgTag}
+                        <div style="font-weight:bold; height: 35px; overflow: hidden; display: flex; align-items: center; justify-content: center;">${p.name}</div>
+                        <div style="color:var(--primary-blue); font-weight:bold; margin-top:5px;">${parseInt(p.price).toLocaleString()} KS</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function addToCart(id) {
+            const p = inventory.find(i => i.id == id);
+            if(!p || p.stock <= 0) return alert("ပစ္စည်းလက်ကျန်မရှိတော့ပါ။");
+            const inCart = cart.find(item => item.id == id);
+            if(inCart) {
+                if(inCart.qty < p.stock) inCart.qty++;
+                else alert("Stock ထက်ပိုရောင်း၍မရပါ။");
+            } else {
+                cart.push({...p, qty: 1});
+            }
+            updateUI();
+        }
+
+        function updateQty(id, delta) {
+            const item = cart.find(i => i.id === id);
+            const invItem = inventory.find(i => i.id === id);
+            if (!item) return;
+            if (delta > 0 && item.qty < invItem.stock) item.qty++;
+            else if (delta < 0 && item.qty > 1) item.qty--;
+            updateUI();
+        }
+
+        function removeFromCart(id) {
+            cart = cart.filter(item => item.id !== id);
+            updateUI();
+        }
+
+        function updateUI() {
+            const list = document.getElementById('cartItems');
+            let total = 0;
+            if(cart.length === 0) {
+                list.innerHTML = `<div style="text-align: center; color: #ccc; margin-top: 100px;"><div style="font-size: 50px;">🛍️</div><p>Empty Cart</p></div>`;
+            } else {
+                list.innerHTML = cart.map(i => {
+                    total += i.price * i.qty;
+                    return `
+                        <div class="cart-item">
+                            <div style="flex-grow:1;">
+                                <span style="font-weight:500;">${i.name}</span>
+                                <div class="qty-controls">
+                                    <button class="btn-sm btn-minus" onclick="event.stopPropagation(); updateQty(${i.id}, -1)">-</button>
+                                    <span style="font-weight:bold; min-width:20px; text-align:center;">${i.qty}</span>
+                                    <button class="btn-sm btn-plus" onclick="event.stopPropagation(); updateQty(${i.id}, 1)">+</button>
+                                </div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="font-weight:bold;">${(i.price * i.qty).toLocaleString()} KS</div>
+                                <button class="btn-sm btn-remove" onclick="event.stopPropagation(); removeFromCart(${i.id})">✖</button>
+                            </div>
+                        </div>`;
+                }).join('');
+            }
+            document.getElementById('totalPrice').innerText = total.toLocaleString() + " KS";
+        }
+
+        async function processSale() {
+            if(cart.length === 0) return;
+            const btn = document.getElementById('payBtn');
+            btn.innerText = "Syncing & Printing...";
+            btn.disabled = true;
+
+            let saleTotal = 0, saleProfit = 0, vHtml = "";
+            let itemsReport = cart.map(i => {
+                saleTotal += i.price * i.qty;
+                saleProfit += (i.price - (i.cost || 0)) * i.qty;
+                vHtml += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                            <span>${i.name} x ${i.qty}</span>
+                            <span>${(i.price * i.qty).toLocaleString()}</span>
+                          </div>`;
+                return `${i.name}(${i.qty})`;
+            }).join(", ");
+
+            document.getElementById('v-list').innerHTML = vHtml;
+            document.getElementById('v-total').innerText = saleTotal.toLocaleString() + " KS";
+            document.getElementById('v-time').innerText = new Date().toLocaleString();
+
+            window.print();
+
+            try {
+                await fetch(SCRIPT_URL, {
+                    method: "POST",
+                    mode: "no-cors",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ type: "SALE", items: itemsReport, total: saleTotal, profit: saleProfit })
+                });
+                alert("အရောင်းအောင်မြင်ပါသည်။");
+                location.reload(); 
+            } catch (e) {
+                alert("Cloud Sync Error!");
+                btn.disabled = false;
+            }
+        }
+
+        fetchInventory();
+    </script>
+</body>
+</html>
