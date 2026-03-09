@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Star Stationery POS - Category Edition</title>
+    <title>Star Stationery POS - Discount Edition</title>
     <style>
         :root {
             --primary-blue: #0984e3;
@@ -20,7 +20,6 @@
         .main-container { flex: 2; padding: 25px; overflow-y: auto; display: flex; flex-direction: column; }
         .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
         
-        /* Search & Filter Styles */
         .filter-section { display: flex; gap: 10px; margin-bottom: 20px; }
         .search-input { flex: 1; padding: 12px; border-radius: 10px; border: 1px solid #ddd; outline: none; font-size: 15px; }
         .cat-select { padding: 10px; border-radius: 10px; border: 1px solid #ddd; background: white; cursor: pointer; min-width: 150px; }
@@ -48,9 +47,12 @@
         .btn-plus { background: var(--primary-blue); color: white; }
         .btn-remove { background: #fab1a0; color: #d63031; margin-left: 10px; }
 
-        .total-box { border-top: 2px dashed #ddd; padding-top: 20px; }
-        .total-row { display: flex; justify-content: space-between; font-size: 1.6rem; font-weight: bold; margin-bottom: 20px; }
-        .pay-btn { background: var(--success-green); color: white; border: none; padding: 20px; border-radius: 12px; font-size: 18px; font-weight: bold; cursor: pointer; width: 100%; }
+        /* Discount & Total Styles */
+        .total-box { border-top: 2px dashed #ddd; padding-top: 15px; }
+        .discount-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 0.9rem; color: #636e72; }
+        .discount-input { width: 80px; padding: 5px; border: 1px solid #ddd; border-radius: 5px; text-align: right; font-weight: bold; color: var(--warning-red); }
+        .total-row { display: flex; justify-content: space-between; font-size: 1.4rem; font-weight: bold; margin-bottom: 15px; border-top: 1px solid #eee; padding-top: 10px; }
+        .pay-btn { background: var(--success-green); color: white; border: none; padding: 18px; border-radius: 12px; font-size: 18px; font-weight: bold; cursor: pointer; width: 100%; }
 
         #voucher-print-area { display: none; }
         @media print {
@@ -91,9 +93,19 @@
         </div>
 
         <div class="total-box">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-weight: 500;">
+                <span>Subtotal:</span>
+                <span id="subTotal">0 KS</span>
+            </div>
+
+            <div class="discount-row">
+                <span>Discount (KS):</span>
+                <input type="number" id="discountInput" class="discount-input" value="0" min="0" oninput="updateUI()">
+            </div>
+
             <div class="total-row">
                 <span>Total:</span>
-                <span id="totalPrice">0 KS</span>
+                <span id="totalPrice" style="color: var(--primary-blue);">0 KS</span>
             </div>
             <button class="pay-btn" id="payBtn" onclick="processSale()">Print & Complete Sale</button>
         </div>
@@ -107,6 +119,15 @@
         </div>
         <div class="v-hr"></div>
         <div id="v-list"></div>
+        <div class="v-hr"></div>
+        <div style="display:flex; justify-content:space-between;">
+            <span>Subtotal:</span>
+            <span id="v-subtotal"></span>
+        </div>
+        <div id="v-discount-area" style="display:flex; justify-content:space-between;">
+            <span>Discount:</span>
+            <span id="v-discount"></span>
+        </div>
         <div class="v-hr"></div>
         <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:16px;">
             <span>TOTAL:</span>
@@ -140,10 +161,7 @@
 
         function setupCategoryFilter() {
             const catSelect = document.getElementById('catFilter');
-            // 'category' ဟု ပြောင်းလဲအသုံးပြုထားသည်
             const categories = [...new Set(inventory.map(p => p.category).filter(c => c))];
-            
-            // ယခင် option များကို ရှင်းထုတ်ပြီး အသစ်ပြန်ထည့်သည်
             catSelect.innerHTML = '<option value="all">All Categories</option>';
             categories.forEach(cat => {
                 const option = document.createElement('option');
@@ -159,7 +177,6 @@
 
             const filtered = inventory.filter(p => {
                 const matchesSearch = p.name.toLowerCase().includes(searchTerm);
-                // 'category' ဟု ပြောင်းလဲစစ်ဆေးသည်
                 const matchesCat = (selectedCat === 'all') || (p.category === selectedCat);
                 return matchesSearch && matchesCat;
             });
@@ -217,12 +234,15 @@
 
         function updateUI() {
             const list = document.getElementById('cartItems');
-            let total = 0;
+            const discountAmount = parseInt(document.getElementById('discountInput').value) || 0;
+            let subtotal = 0;
+
             if(cart.length === 0) {
                 list.innerHTML = `<div style="text-align: center; color: #ccc; margin-top: 100px;"><div style="font-size: 50px;">🛍️</div><p>Empty Cart</p></div>`;
+                document.getElementById('discountInput').value = 0;
             } else {
                 list.innerHTML = cart.map(i => {
-                    total += i.price * i.qty;
+                    subtotal += i.price * i.qty;
                     return `
                         <div class="cart-item">
                             <div style="flex-grow:1;">
@@ -240,18 +260,23 @@
                         </div>`;
                 }).join('');
             }
-            document.getElementById('totalPrice').innerText = total.toLocaleString() + " KS";
+
+            const grandTotal = Math.max(0, subtotal - discountAmount);
+            document.getElementById('subTotal').innerText = subtotal.toLocaleString() + " KS";
+            document.getElementById('totalPrice').innerText = grandTotal.toLocaleString() + " KS";
         }
 
         async function processSale() {
             if(cart.length === 0) return;
             const btn = document.getElementById('payBtn');
+            const discountAmt = parseInt(document.getElementById('discountInput').value) || 0;
+            
             btn.innerText = "Syncing & Printing...";
             btn.disabled = true;
 
-            let saleTotal = 0, saleProfit = 0, vHtml = "";
+            let subtotal = 0, saleProfit = 0, vHtml = "";
             let itemsReport = cart.map(i => {
-                saleTotal += i.price * i.qty;
+                subtotal += i.price * i.qty;
                 saleProfit += (i.price - (i.cost || 0)) * i.qty;
                 vHtml += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;">
                             <span>${i.name} x ${i.qty}</span>
@@ -260,8 +285,14 @@
                 return `${i.name}(${i.qty})`;
             }).join(", ");
 
+            const finalTotal = subtotal - discountAmt;
+            const finalProfit = saleProfit - discountAmt; // အမြတ်ထဲမှ discount ကို နုတ်သည်
+
+            // Voucher UI Setup
             document.getElementById('v-list').innerHTML = vHtml;
-            document.getElementById('v-total').innerText = saleTotal.toLocaleString() + " KS";
+            document.getElementById('v-subtotal').innerText = subtotal.toLocaleString() + " KS";
+            document.getElementById('v-discount').innerText = "- " + discountAmt.toLocaleString() + " KS";
+            document.getElementById('v-total').innerText = finalTotal.toLocaleString() + " KS";
             document.getElementById('v-time').innerText = new Date().toLocaleString();
 
             window.print();
@@ -271,7 +302,8 @@
                     method: "POST",
                     mode: "no-cors",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ type: "SALE", items: itemsReport, total: saleTotal, profit: saleProfit })
+                    // Profit ထဲမှပါ discount ကို နုတ်ပြီး Sheet ထဲသို့ ပို့ပေးသည်
+                    body: JSON.stringify({ type: "SALE", items: itemsReport, total: finalTotal, profit: finalProfit })
                 });
                 alert("အရောင်းအောင်မြင်ပါသည်။");
                 location.reload(); 
