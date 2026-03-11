@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Star Stationery POS - Offline Sync Edition</title>
+    <title>Star Stationery POS - Turbo Edition</title>
     <style>
         :root {
             --primary-blue: #0984e3;
@@ -69,7 +69,7 @@
     <div class="main-container">
         <div class="header-bar">
             <h2 style="margin:0; color: var(--primary-blue);">✨ Star Stationery</h2>
-            <div id="syncStatus" class="status-badge">☁️ Initializing...</div>
+            <div id="syncStatus" class="status-badge">⚡ Preparing...</div>
         </div>
 
         <div class="filter-section">
@@ -139,13 +139,12 @@
     </div>
 
     <script>
-        // *** REPLACE WITH YOUR WEB APP URL ***
-        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxN3rWnO2bvT4T2qtUUHDb2X4ukJOPXc7d0cXiXV1KBaWEjDK-svQEhVAIfzy1HMjni/exec";
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwJ_QzdcpOyqe7xmaIp9NFz395OOWB32lxk1ShRuI7f6E6Pn-XlHVDUzXCPZqsyDQ0C/exec";
 
         let inventory = [];
         let cart = [];
 
-        // --- OFFLINE CORE LOGIC ---
+        // --- OPTIMIZED LOADING LOGIC ---
         
         function loadLocalData() {
             const savedInventory = localStorage.getItem('star_inventory');
@@ -158,18 +157,29 @@
         }
 
         async function fetchInventory() {
+            // Cloud data မရောက်ခင် Local Data ကို အမြန်ဆုံး အရင်တင်ပေးထားမယ်
+            loadLocalData(); 
+            
             try {
-                const response = await fetch(SCRIPT_URL);
+                // Background မှာ Cloud ကနေ ဒေတာအသစ် ဆွဲယူမယ်
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 Sec ထက်ကြာရင် ဖြတ်ချမယ်
+                
+                const response = await fetch(SCRIPT_URL, { signal: controller.signal });
                 const freshData = await response.json();
+                clearTimeout(timeoutId);
+
                 inventory = freshData;
                 localStorage.setItem('star_inventory', JSON.stringify(freshData));
+                
+                // ဒေတာအသစ်ရရင် UI ကို Update လုပ်မယ်
                 setupCategoryFilter();
                 renderProducts(inventory);
                 updateStatus("✅ Cloud Synced", "var(--success-green)");
                 syncOfflineSales();
             } catch (error) {
-                console.log("Offline mode active.");
-                loadLocalData();
+                console.log("Cloud sync delayed or offline.");
+                if (inventory.length === 0) loadLocalData();
             }
         }
 
@@ -182,7 +192,6 @@
         async function syncOfflineSales() {
             const pendingSales = JSON.parse(localStorage.getItem('pending_sales') || "[]");
             if (pendingSales.length === 0) return;
-            console.log(`Syncing ${pendingSales.length} offline sales...`);
             for (let sale of pendingSales) {
                 try {
                     await fetch(SCRIPT_URL, {
@@ -191,12 +200,9 @@
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify(sale)
                     });
-                } catch (e) {
-                    console.error("Sync failed for a sale record.");
-                }
+                } catch (e) { console.error("Sync failed."); }
             }
             localStorage.removeItem('pending_sales');
-            console.log("All offline sales synced successfully.");
         }
 
         // --- PRODUCT & UI LOGIC ---
@@ -204,6 +210,7 @@
         function setupCategoryFilter() {
             const catSelect = document.getElementById('catFilter');
             const categories = [...new Set(inventory.map(p => p.category).filter(c => c))];
+            const currentVal = catSelect.value;
             catSelect.innerHTML = '<option value="all">All Categories</option>';
             categories.forEach(cat => {
                 const option = document.createElement('option');
@@ -211,6 +218,7 @@
                 option.innerText = cat;
                 catSelect.appendChild(option);
             });
+            catSelect.value = currentVal;
         }
 
         function filterProducts() {
@@ -226,7 +234,7 @@
 
         function renderProducts(data) {
             const grid = document.getElementById('productGrid');
-            if (data.length === 0) {
+            if (data.length === 0 && inventory.length > 0) {
                 grid.innerHTML = `<p style="grid-column: 1/-1; text-align: center; color: #999;">ရှာဖွေမှုမတွေ့ရှိပါ</p>`;
                 return;
             }
@@ -273,35 +281,20 @@
             updateUI();
         }
 
-        // --- EXPIRED / DAMAGE FEATURE ---
         async function markAsWaste(id) {
             const item = cart.find(i => i.id === id);
             if(!confirm(`${item.name} (${item.qty} ခု) ကို Damage/Expired အဖြစ် စာရင်းသွင်းမလား?`)) return;
-
             const lossAmount = (item.cost || 0) * item.qty;
-            const wasteData = { 
-                type: "SALE", 
-                items: `⚠️ WASTE: ${item.name}(${item.qty})`, 
-                total: 0, 
-                profit: -lossAmount, 
-                date: new Date().toISOString() 
-            };
-
+            const wasteData = { type: "SALE", items: `⚠️ WASTE: ${item.name}(${item.qty})`, total: 0, profit: -lossAmount, date: new Date().toISOString() };
             try {
-                updateStatus("🔄 Syncing Waste...", "var(--orange-offline)");
-                await fetch(SCRIPT_URL, {
-                    method: "POST",
-                    mode: "no-cors",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(wasteData)
-                });
-                alert("Waste စာရင်းသွင်းပြီးပါပြီ။ Stock မှ နှုတ်ပြီးဖြစ်ပါတယ်။");
+                await fetch(SCRIPT_URL, { method: "POST", mode: "no-cors", body: JSON.stringify(wasteData) });
+                alert("Waste စာရင်းသွင်းပြီးပါပြီ။");
                 location.reload();
             } catch (e) {
-                const pendingSales = JSON.parse(localStorage.getItem('pending_sales') || "[]");
-                pendingSales.push(wasteData);
-                localStorage.setItem('pending_sales', JSON.stringify(pendingSales));
-                alert("Offline: Waste စာရင်းကို စက်ထဲတွင် မှတ်ထားပါသည်။");
+                const pending = JSON.parse(localStorage.getItem('pending_sales') || "[]");
+                pending.push(wasteData);
+                localStorage.setItem('pending_sales', JSON.stringify(pending));
+                alert("Offline: စက်ထဲတွင် မှတ်ထားပါသည်။");
                 location.reload();
             }
         }
@@ -370,24 +363,19 @@
             window.print();
 
             try {
-                await fetch(SCRIPT_URL, {
-                    method: "POST",
-                    mode: "no-cors",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(saleData)
-                });
-                alert("အရောင်းအောင်မြင်ပါသည်။ (Online Synced)");
+                await fetch(SCRIPT_URL, { method: "POST", mode: "no-cors", body: JSON.stringify(saleData) });
+                alert("ရောင်းပြီးပါပြီ။ (Synced)");
                 location.reload(); 
             } catch (e) {
-                const pendingSales = JSON.parse(localStorage.getItem('pending_sales') || "[]");
-                pendingSales.push(saleData);
-                localStorage.setItem('pending_sales', JSON.stringify(pendingSales));
-                alert("အင်တာနက်မရှိသဖြင့် စက်ထဲတွင်သာ မှတ်သားထားပါသည်။ အင်တာနက်ပြန်လာလျှင် အလိုအလျောက် ပို့ပေးပါမည်။");
+                const pending = JSON.parse(localStorage.getItem('pending_sales') || "[]");
+                pending.push(saleData);
+                localStorage.setItem('pending_sales', JSON.stringify(pending));
+                alert("Offline: စက်ထဲတွင် မှတ်ထားပါသည်။");
                 location.reload();
             }
         }
 
-        loadLocalData();
+        // Start Fetching
         fetchInventory();
     </script>
 </body>
