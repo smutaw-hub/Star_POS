@@ -47,6 +47,7 @@
         .btn-minus { background: #dfe6e9; color: #2d3436; }
         .btn-plus { background: var(--primary-blue); color: white; }
         .btn-remove { background: #fab1a0; color: #d63031; margin-left: 10px; }
+        .btn-waste { background: #636e72; color: white; font-size: 10px; padding: 0 8px; height: 30px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; margin-left: 5px; }
 
         .total-box { border-top: 2px dashed #ddd; padding-top: 15px; }
         .discount-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 0.9rem; color: #636e72; }
@@ -146,7 +147,6 @@
 
         // --- OFFLINE CORE LOGIC ---
         
-        // စက်ထဲမှာ သိမ်းထားတဲ့ ဒေတာတွေကို အရင်ယူသုံးမယ်
         function loadLocalData() {
             const savedInventory = localStorage.getItem('star_inventory');
             if (savedInventory) {
@@ -162,12 +162,10 @@
                 const response = await fetch(SCRIPT_URL);
                 const freshData = await response.json();
                 inventory = freshData;
-                // Cloud ကရတဲ့ ဒေတာကို စက်ထဲမှာ Update လုပ်ထားမယ်
                 localStorage.setItem('star_inventory', JSON.stringify(freshData));
                 setupCategoryFilter();
                 renderProducts(inventory);
                 updateStatus("✅ Cloud Synced", "var(--success-green)");
-                // အင်တာနက်ပြန်ရရင် ကျန်နေတဲ့ Offline အရောင်းတွေကို ပို့မယ်
                 syncOfflineSales();
             } catch (error) {
                 console.log("Offline mode active.");
@@ -181,13 +179,10 @@
             status.style.color = color;
         }
 
-        // Offline ရောင်းထားတာတွေကို Google Sheet ဆီ ပို့ပေးမည့် Function
         async function syncOfflineSales() {
             const pendingSales = JSON.parse(localStorage.getItem('pending_sales') || "[]");
             if (pendingSales.length === 0) return;
-
             console.log(`Syncing ${pendingSales.length} offline sales...`);
-            
             for (let sale of pendingSales) {
                 try {
                     await fetch(SCRIPT_URL, {
@@ -200,7 +195,6 @@
                     console.error("Sync failed for a sale record.");
                 }
             }
-            // အားလုံးပို့ပြီးရင် ရှင်းထုတ်လိုက်မယ်
             localStorage.removeItem('pending_sales');
             console.log("All offline sales synced successfully.");
         }
@@ -279,6 +273,39 @@
             updateUI();
         }
 
+        // --- EXPIRED / DAMAGE FEATURE ---
+        async function markAsWaste(id) {
+            const item = cart.find(i => i.id === id);
+            if(!confirm(`${item.name} (${item.qty} ခု) ကို Damage/Expired အဖြစ် စာရင်းသွင်းမလား?`)) return;
+
+            const lossAmount = (item.cost || 0) * item.qty;
+            const wasteData = { 
+                type: "SALE", 
+                items: `⚠️ WASTE: ${item.name}(${item.qty})`, 
+                total: 0, 
+                profit: -lossAmount, 
+                date: new Date().toISOString() 
+            };
+
+            try {
+                updateStatus("🔄 Syncing Waste...", "var(--orange-offline)");
+                await fetch(SCRIPT_URL, {
+                    method: "POST",
+                    mode: "no-cors",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(wasteData)
+                });
+                alert("Waste စာရင်းသွင်းပြီးပါပြီ။ Stock မှ နှုတ်ပြီးဖြစ်ပါတယ်။");
+                location.reload();
+            } catch (e) {
+                const pendingSales = JSON.parse(localStorage.getItem('pending_sales') || "[]");
+                pendingSales.push(wasteData);
+                localStorage.setItem('pending_sales', JSON.stringify(pendingSales));
+                alert("Offline: Waste စာရင်းကို စက်ထဲတွင် မှတ်ထားပါသည်။");
+                location.reload();
+            }
+        }
+
         function updateUI() {
             const list = document.getElementById('cartItems');
             const discountAmount = parseInt(document.getElementById('discountInput').value) || 0;
@@ -297,6 +324,7 @@
                                     <button class="btn-sm btn-minus" onclick="event.stopPropagation(); updateQty(${i.id}, -1)">-</button>
                                     <span style="font-weight:bold; min-width:20px; text-align:center;">${i.qty}</span>
                                     <button class="btn-sm btn-plus" onclick="event.stopPropagation(); updateQty(${i.id}, 1)">+</button>
+                                    <button class="btn-waste" onclick="event.stopPropagation(); markAsWaste(${i.id})">⚠️ Waste</button>
                                 </div>
                             </div>
                             <div style="text-align:right;">
@@ -315,7 +343,6 @@
             if(cart.length === 0) return;
             const btn = document.getElementById('payBtn');
             const discountAmt = parseInt(document.getElementById('discountInput').value) || 0;
-            
             btn.innerText = "Processing...";
             btn.disabled = true;
 
@@ -334,7 +361,6 @@
             const finalProfit = saleProfit - discountAmt;
             const saleData = { type: "SALE", items: itemsReport, total: finalTotal, profit: finalProfit, date: new Date().toISOString() };
 
-            // Voucher Print Setup
             document.getElementById('v-list').innerHTML = vHtml;
             document.getElementById('v-subtotal').innerText = subtotal.toLocaleString() + " KS";
             document.getElementById('v-discount').innerText = "- " + discountAmt.toLocaleString() + " KS";
@@ -344,8 +370,7 @@
             window.print();
 
             try {
-                // အင်တာနက်ရှိမရှိ စစ်ပြီး ပို့မည်
-                const response = await fetch(SCRIPT_URL, {
+                await fetch(SCRIPT_URL, {
                     method: "POST",
                     mode: "no-cors",
                     headers: { "Content-Type": "application/json" },
@@ -354,17 +379,14 @@
                 alert("အရောင်းအောင်မြင်ပါသည်။ (Online Synced)");
                 location.reload(); 
             } catch (e) {
-                // အင်တာနက်မရှိလျှင် Local ထဲမှာ မှတ်ထားမည်
                 const pendingSales = JSON.parse(localStorage.getItem('pending_sales') || "[]");
                 pendingSales.push(saleData);
                 localStorage.setItem('pending_sales', JSON.stringify(pendingSales));
-                
                 alert("အင်တာနက်မရှိသဖြင့် စက်ထဲတွင်သာ မှတ်သားထားပါသည်။ အင်တာနက်ပြန်လာလျှင် အလိုအလျောက် ပို့ပေးပါမည်။");
                 location.reload();
             }
         }
 
-        // စဖွင့်ဖွင့်ချင်း Local Data အရင်ပြပြီးမှ Cloud ကို လှမ်းခေါ်မည်
         loadLocalData();
         fetchInventory();
     </script>
